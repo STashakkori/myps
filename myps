@@ -1,0 +1,106 @@
+#!/bin/bash
+
+########################################################################################
+# myps :: a version of ps using the /proc virtual file system implemented in Bash.
+#
+# @author :: Sina Tashakkori and Haihou Yang
+########################################################################################
+
+# lookupdriver :: function that takes a major device id number and does a hard
+#                 coded lookup and then outputs the major string component of the
+#                 tty.
+function lookupdriver {
+    case $1 in
+        4)
+            echo -n "tty"
+        ;;
+
+        5)
+            echo -n "tty"
+        ;;
+
+        128)
+            echo -n "ptm"
+        ;;
+
+        136)
+            echo -n "pts"
+        ;;
+    esac
+}
+
+# printInfo :: function that uses the process id of a process to gather process information
+#              on the process.
+#
+function printInfo {
+    printf "%5s " $processid
+    if ! cat /proc/$processid/stat &> /dev/null
+    then printf "%-7s " "?"
+    else
+        encoding=`cat /proc/$processid/stat | awk '{print $7}'` # get the tty_nr field from the stat file.
+        if [ $encoding -eq 0 ] ; then printf "%-7s " "?" # if the tty_nr field is a 0 then print a ?.
+        else # otherwise extract the necessary pieces of tty and print it out.
+            majordeviceid=$((($encoding & 0xFF00) >> 8))
+            ttypiece1=`lookupdriver $majordeviceid`
+            minordeviceid=$(((($encoding & 0xFFF00000 )>> 12) | ($encoding & 0xFF)))
+            printf "%-7s " $ttypiece1/$minordeviceid
+        fi
+    fi
+    if ! cat /proc/$processid/stat &> /dev/null
+    then printf " ?  ?\n"
+    else
+        # print time field
+        cat /proc/$processid/stat | awk '{printf " %02d:%02d:%02d", ($14+$15)/100/3600,($14+$15)/100/60,(($14+$15)/100)%60}'
+        # print cmd field
+        cat /proc/$processid/stat | awk '{printf " %-10s\n",$2}' | tr -d '()'
+    fi
+}
+echo "  PID TTY          TIME CMD"
+
+# check the flag to myps.
+case $1 in
+    # if the -p flag is given, we want to display information based on the specified pid.
+    "-p")
+    processid=$2
+    printInfo | sed '/??/d;/?  ?/d'
+    ;;
+
+    # if the -U flag is given, we want to display information based on the specifed username.
+    "-U")
+    username=`grep $2 /etc/passwd | cut -d: -f1`
+    processes=`ls -l /proc/ | awk -v x=$username '$3 == x {print $NF}' | head -n -4`
+    for processid in $processes
+    do
+        printInfo | sed '/??/d;/?  ?/d'
+    done
+    ;;
+
+    "-e")
+    if ! cat /proc/$processid/stat &> /dev/null
+    then
+        continue
+    fi
+
+    processes=`ls -l /proc/ | awk '$9~ "^[0-9]*$" {print $9}' | sort -n`
+    for processid in $processes
+    do
+        printInfo | sed '/??/d;/?  ?/d'
+    done
+    ;;
+
+    "-C")
+    commandname=$2
+    processes=`ls -l /proc/ | awk '$9~ "^[0-9]*$" {print $9}' | sort -n`
+    for processid in $processes
+    do
+        if ! cat /proc/$processid/stat &> /dev/null
+        then
+            continue
+        fi
+
+        if [ $commandname == `cat /proc/$processid/stat | awk '{printf " %s\n",$2}' | tr -d '()'` ]
+            then printInfo
+        fi
+    done
+    ;;
+esac
